@@ -773,6 +773,45 @@ function generateStatusMessage($marzbanapi, $chatId, $lang, $sendMessage = true,
     }
 }
 
+function getAdminsPaginated($userId, $page = 1, $itemsPerPage = 10) {
+    global $marzbanConn, $allowedUsers, $marzbanAdminUsername;
+    
+    $offset = ($page - 1) * $itemsPerPage;
+    
+    if (in_array($userId, $allowedUsers)) {
+        $countResult = $marzbanConn->query("SELECT COUNT(*) as count FROM admins WHERE username != '$marzbanAdminUsername'");
+        $totalCount = $countResult->fetch_assoc()['count'];
+        
+        $adminsResult = $marzbanConn->query("SELECT id, username FROM admins WHERE username != '$marzbanAdminUsername' LIMIT $offset, $itemsPerPage");
+    } else {
+        $stmt = $marzbanConn->prepare("SELECT COUNT(*) as count FROM admins WHERE telegram_id = ?");
+        $stmt->bind_param("i", $userId);
+        $stmt->execute();
+        $countResult = $stmt->get_result();
+        $totalCount = $countResult->fetch_assoc()['count'];
+        $stmt->close();
+        
+        $stmt = $marzbanConn->prepare("SELECT id, username FROM admins WHERE telegram_id = ? LIMIT ?, ?");
+        $stmt->bind_param("iii", $userId, $offset, $itemsPerPage);
+        $stmt->execute();
+        $adminsResult = $stmt->get_result();
+    }
+    
+    $admins = [];
+    while ($row = $adminsResult->fetch_assoc()) {
+        $admins[] = $row;
+    }
+    
+    $totalPages = ceil($totalCount / $itemsPerPage);
+    
+    return [
+        'admins' => $admins,
+        'currentPage' => $page,
+        'totalPages' => $totalPages,
+        'totalCount' => $totalCount
+    ];
+}
+
 function handleCallbackQuery($callback_query) {
     global $botConn, $marzbanConn, $allowedUsers, $botDbPass, $vpnDbPass, $apiURL, $latestVersion, $marzbanapi;
 
@@ -1180,109 +1219,106 @@ function handleCallbackQuery($callback_query) {
             )
         ]);
     }
-        if ($data === 'manage_admins') {
-        global $marzbanAdminUsername; 
-        if (in_array($userId, $allowedUsers)) {
-            $adminsResult = $marzbanConn->query("SELECT id, username FROM admins");
-        } else {
-            $stmt = $marzbanConn->prepare("SELECT id, username FROM admins WHERE telegram_id = ?");
-            $stmt->bind_param("i", $userId);
-            $stmt->execute();
-            $adminsResult = $stmt->get_result();
-        }
-
-        $admins = [];
-        while ($row = $adminsResult->fetch_assoc()) {
-            if ($row['username'] === $marzbanAdminUsername) {
-                continue;
-            }
-            $adminInfo = getAdminInfo($row['id']);
-            if ($adminInfo) {
-                $remainingTraffic = $adminInfo['remainingTraffic'] === '♾️' ? 'نامحدود' : number_format($adminInfo['remainingTraffic'], 2) . ' گیگ';
-                $daysLeft = $adminInfo['daysLeft'] === '♾️' ? 'نامحدود' : $adminInfo['daysLeft'] . ' روز';
-                $admins[] = [
-                    ['text' => $daysLeft, 'callback_data' => 'select_admin:' . $row['id']],
-                    ['text' => $remainingTraffic, 'callback_data' => 'select_admin:' . $row['id']],
-                    ['text' => $row['username'], 'callback_data' => 'select_admin:' . $row['id']]
-                ];
-            }
-        }
-
-        if (empty($admins)) {
-            $stmt = $botConn->prepare("UPDATE user_states SET state = NULL WHERE user_id = ?");
-            $stmt->bind_param("i", $chatId);
-            $stmt->execute();
-            $stmt->close();
-
-            $keyboard = [
-                'inline_keyboard' => [
-                    [
-                        ['text' => $lang['back'], 'callback_data' => 'back_to_main']
-                    ]
-                ]
+if ($data === 'manage_admins' || strpos($data, 'admin_page:') === 0) {
+    $page = 1;
+    if (strpos($data, 'admin_page:') === 0) {
+        $page = intval(substr($data, strlen('admin_page:')));
+    }
+    
+    $paginatedData = getAdminsPaginated($userId, $page, 10);
+    $admins = $paginatedData['admins'];
+    $currentPage = $paginatedData['currentPage'];
+    $totalPages = $paginatedData['totalPages'];
+    $totalCount = $paginatedData['totalCount'];
+    
+    $adminRows = [];
+    foreach ($admins as $row) {
+        $adminInfo = getAdminInfo($row['id']);
+        if ($adminInfo) {
+            $remainingTraffic = $adminInfo['remainingTraffic'] === '♾️' ? 'نامحدود' : number_format($adminInfo['remainingTraffic'], 2) . ' گیگ';
+            $daysLeft = $adminInfo['daysLeft'] === '♾️' ? 'نامحدود' : $adminInfo['daysLeft'] . ' روز';
+            $adminRows[] = [
+                ['text' => $daysLeft, 'callback_data' => 'select_admin:' . $row['id']],
+                ['text' => $remainingTraffic, 'callback_data' => 'select_admin:' . $row['id']],
+                ['text' => $row['username'], 'callback_data' => 'select_admin:' . $row['id']]
             ];
-
-            sendRequest('editMessageText', [
-                'chat_id' => $chatId,
-                'message_id' => $messageId,
-                'text' => $lang['no_admins'],
-                'reply_markup' => $keyboard
-            ]);
-            return;
         }
+    }
+
+    if (empty($admins) && $page == 1) {
+        $stmt = $botConn->prepare("UPDATE user_states SET state = NULL WHERE user_id = ?");
+        $stmt->bind_param("i", $chatId);
+        $stmt->execute();
+        $stmt->close();
 
         $keyboard = [
             'inline_keyboard' => [
                 [
-                    ['text' => 'زمان باقی‌مانده', 'callback_data' => 'noop'],
-                    ['text' => 'حجم باقی‌مانده', 'callback_data' => 'noop'],
-                    ['text' => 'یوزرنیم', 'callback_data' => 'noop']
+                    ['text' => $lang['back'], 'callback_data' => 'back_to_main']
                 ]
             ]
         ];
 
-        $keyboard['inline_keyboard'] = array_merge($keyboard['inline_keyboard'], $admins);
-
-        if (in_array($userId, $allowedUsers)) {
-            $keyboard['inline_keyboard'][] = [
-                ['text' => $lang['add_admin'], 'callback_data' => 'add_admin'],
-                ['text' => $lang['delete_admin'], 'callback_data' => 'delete_admin']
-            ];
-        }
-        $keyboard['inline_keyboard'][] = [
-            ['text' => $lang['back'], 'callback_data' => 'back_to_main']
-        ];
-
-        handleUserState('clear', $chatId);
-
         sendRequest('editMessageText', [
             'chat_id' => $chatId,
             'message_id' => $messageId,
-            'text' => $lang['select_admin_prompt'],
-            'parse_mode' => 'Markdown',
+            'text' => $lang['no_admins'],
             'reply_markup' => json_encode($keyboard)
         ]);
         return;
-    }        
-    if ($data === 'delete_admin') {
-        $adminsResult = $marzbanConn->query("SELECT id, username FROM admins");
-        $admins = [];
-        while ($row = $adminsResult->fetch_assoc()) {
-            $admins[] = ['text' => $row['username'], 'callback_data' => 'confirm_delete_admin:' . $row['id']];
-        }
+    }
+
+    $keyboard = [
+        'inline_keyboard' => [
+            [
+                ['text' => 'زمان باقی‌مانده', 'callback_data' => 'noop'],
+                ['text' => 'حجم باقی‌مانده', 'callback_data' => 'noop'],
+                ['text' => 'یوزرنیم', 'callback_data' => 'noop']
+            ]
+        ]
+    ];
+
+    $keyboard['inline_keyboard'] = array_merge($keyboard['inline_keyboard'], $adminRows);
+
+    // صفحه‌بندی
+    $paginationRow = [];
+    if ($currentPage > 1) {
+        $paginationRow[] = ['text' => '⬅️ قبلی', 'callback_data' => 'admin_page:' . ($currentPage - 1)];
+    }
     
-        $keyboard = ['inline_keyboard' => array_chunk($admins, 2)];
+    $paginationRow[] = ['text' => "$currentPage / $totalPages", 'callback_data' => 'noop'];
+    
+    if ($currentPage < $totalPages) {
+        $paginationRow[] = ['text' => 'بعدی ➡️', 'callback_data' => 'admin_page:' . ($currentPage + 1)];
+    }
+    
+    if (!empty($paginationRow)) {
+        $keyboard['inline_keyboard'][] = $paginationRow;
+    }
+
+    if (in_array($userId, $allowedUsers)) {
         $keyboard['inline_keyboard'][] = [
-            ['text' => $lang['back'], 'callback_data' => 'manage_admins']
+            ['text' => $lang['add_admin'], 'callback_data' => 'add_admin'],
+            ['text' => $lang['delete_admin'], 'callback_data' => 'delete_admin']
         ];
+    }
     
-        sendRequest('editMessageText', [
-            'chat_id' => $chatId,
-            'message_id' => $messageId,
-            'text' => $lang['select_admin_to_delete'],
-            'reply_markup' => $keyboard
-        ]);
-        return;
+    $keyboard['inline_keyboard'][] = [
+        ['text' => $lang['back'], 'callback_data' => 'back_to_main']
+    ];
+
+    handleUserState('clear', $chatId);
+
+    $titleText = $lang['select_admin_prompt'] . "\n📊 (کل: $totalCount ادمین)";
+
+    sendRequest('editMessageText', [
+        'chat_id' => $chatId,
+        'message_id' => $messageId,
+        'text' => $titleText,
+        'parse_mode' => 'Markdown',
+        'reply_markup' => json_encode($keyboard)
+    ]);
+    return;
     }
     
     if (strpos($data, 'confirm_delete_admin:') === 0) {
