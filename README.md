@@ -2,7 +2,7 @@
 A management bot and web panel for [Marzban](https://github.com/Gozargah/Marzban).
 
 ## Telegram
-Join the support channel: [@marzhelp](https://t.me/marzhelp)
+Join the support channel: [@OblivionServer](https://t.me/OblivionServer)
 
 ## What Is Included
 - Telegram bot for admin management
@@ -27,9 +27,6 @@ The web panel is in `panel/` and runs next to the bot.
   - used, total, and remaining traffic
   - users stats (total, active, expired, online)
   - limits and status view
-- Footer branding:
-  - `Made with love by OblivionSpark`
-  - linked to: `https://github.com/iroblivionSpark`
 
 ## Installation
 ### Easy Installer (Recommended)
@@ -54,11 +51,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/irOblivionSpark/marzhelp/mai
 </p>
 
 ## Donations
-- TRX: `TGftLESDAeRncE7yMAHrTUCsixuUwPc6qp`
-- USDT (BEP20): `0x413eb47C430a3eb0E4262f267C1AE020E0C7F84D`
-- Bitcoin: `bc1qnmuuxraew34g806ewkepxrhgln4ult6z5vkj9l`
-- ETH/BNB/MATIC (ERC20/BEP20): `0x413eb47C430a3eb0E4262f267C1AE020E0C7F84D`
-- TON: `UQDNpA3SlFMorlrCJJcqQjix93ijJfhAwIxnbTwZTLiHZ0Xa`
+Soon
 
 ## License
 Published under [AGPL-3.0](./LICENSE).
