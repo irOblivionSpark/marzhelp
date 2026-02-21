@@ -28,18 +28,13 @@ The web panel is in `panel/` and runs next to the bot.
   - users stats (total, active, expired, online)
   - limits and status view
 - Footer branding:
-  - `Made with ❤️ by OblivionSpark`
+  - `Made with love by OblivionSpark`
   - linked to: `https://github.com/iroblivionSpark`
 
 ## Installation
-
-### Standard Installer
-```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/irOblivionSpark/marzhelp/main/install.sh)
-```
-
-### Easy Installer (Recommended For Docker Marzban)
+### Easy Installer (Recommended)
 This installer is focused on servers where Marzban and MySQL are already running in Docker.
+It asks for Telegram token/admin IDs and automatically sets the webhook.
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/irOblivionSpark/marzhelp/main/install-easy.sh)
