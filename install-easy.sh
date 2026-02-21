@@ -441,7 +441,71 @@ save_config_state() {
     upsert_config_value "marzban-admin-password" "${MARZBAN_ADMIN_PASSWORD}"
 }
 
-main() {
+remove_marzhelp_cron() {
+    local current_cron=""
+    local new_cron=""
+
+    current_cron="$(crontab -l 2>/dev/null || true)"
+    if [[ -n "${current_cron}" ]]; then
+        new_cron="$(printf "%s\n" "${current_cron}" | grep -v "${APP_DIR}" || true)"
+        printf "%s\n" "${new_cron}" | crontab - || true
+    fi
+}
+
+delete_telegram_webhook_if_possible() {
+    local token=""
+    local response=""
+
+    if [[ -f "${APP_DIR}/config.php" ]]; then
+        token="$(grep "^\$botToken = " "${APP_DIR}/config.php" | head -n1 | sed -E "s/^\$botToken = '(.*)';/\1/" || true)"
+    fi
+    if [[ -z "${token}" ]]; then
+        token="$(read_config_value "bot-api")"
+    fi
+
+    if [[ -n "${token}" ]]; then
+        response="$(curl -fsSL "https://api.telegram.org/bot${token}/deleteWebhook" || true)"
+        if echo "${response}" | grep -q '"ok":true'; then
+            ok "Telegram webhook deleted."
+        else
+            warn "Could not delete webhook automatically."
+        fi
+    else
+        warn "Bot token not found. Skipping webhook deletion."
+    fi
+}
+
+uninstall_marzhelp() {
+    local confirm=""
+
+    warn "This will remove Marzhelp files, cron entry, and Nginx site config."
+    confirm="$(prompt_with_default "Continue uninstall? (y/n)" "n")"
+    if [[ ! "${confirm}" =~ ^[Yy]$ ]]; then
+        info "Uninstall canceled."
+        return 0
+    fi
+
+    delete_telegram_webhook_if_possible
+    remove_marzhelp_cron
+
+    rm -rf "${APP_DIR}"
+    rm -f /etc/nginx/sites-enabled/marzhelp
+    rm -f /etc/nginx/sites-available/marzhelp
+    rm -f /etc/sudoers.d/marzhelp
+
+    if command -v nginx >/dev/null 2>&1; then
+        nginx -t >/dev/null 2>&1 || true
+        systemctl restart nginx 2>/dev/null || true
+    fi
+
+    if [[ -f "${CONFIG_FILE}" ]]; then
+        rm -f "${CONFIG_FILE}"
+    fi
+
+    ok "Marzhelp uninstall completed."
+}
+
+run_install() {
     ensure_root
     require_command docker
 
@@ -462,6 +526,37 @@ main() {
     ok "Installation completed."
     echo "Webhook:   https://${BOT_DOMAIN}:88/marzhelp/webhook.php"
     echo "Web Panel: https://${BOT_DOMAIN}:88/marzhelp/panel/"
+}
+
+show_menu() {
+    echo
+    echo "====== Marzhelp Easy Installer ======"
+    echo "1) Install"
+    echo "2) Uninstall"
+    echo "0) Exit"
+}
+
+main() {
+    ensure_root
+    while true; do
+        show_menu
+        read -r -p "Select an option: " choice
+        case "${choice}" in
+            1)
+                run_install
+                ;;
+            2)
+                uninstall_marzhelp
+                ;;
+            0)
+                info "Exiting."
+                exit 0
+                ;;
+            *)
+                err "Invalid option. Choose 1, 2, or 0."
+                ;;
+        esac
+    done
 }
 
 main "$@"
