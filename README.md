@@ -46,7 +46,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/irOblivionSpark/marzhelp/mai
 ## Screenshots
 <p align="center">
   <img src="https://github.com/iroblivionspark/marzhelp/blob/main/screenshots/screenshot1.png" alt="Screenshot" width="300"/>
-  <img src="https://github.com/iroblivionspark/marzhelp/blob/main/screenshots/screenshot2.jpg" alt="Screenshot" width="300"/>
+  <img src="https://github.com/iroblivionspark/marzhelp/blob/main/screenshots/screenshot2.png" alt="Screenshot" width="300"/>
   <img src="https://github.com/iroblivionspark/marzhelp/blob/main/screenshots/screenshot3.png" alt="Screenshot" width="300"/>
 </p>
 
