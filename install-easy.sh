@@ -240,8 +240,25 @@ collect_inputs() {
 install_packages() {
     info "Installing dependencies (without MySQL server package)..."
     export DEBIAN_FRONTEND=noninteractive
+
+    # Remove Apache before installing PHP packages to avoid restart failures on port 80.
+    if dpkg -l | grep -q '^ii  apache2'; then
+        warn "Apache detected. Removing it before package installation..."
+        systemctl stop apache2 2>/dev/null || true
+        systemctl disable apache2 2>/dev/null || true
+
+        local apache_php_modules=""
+        apache_php_modules="$(dpkg -l | awk '/^ii  libapache2-mod-php/{print $2}' || true)"
+        if [[ -n "${apache_php_modules}" ]]; then
+            apt-get purge -y apache2 apache2-bin apache2-data apache2-utils ${apache_php_modules} || true
+        else
+            apt-get purge -y apache2 apache2-bin apache2-data apache2-utils || true
+        fi
+        apt-get autoremove -y || true
+    fi
+
     apt-get update -y
-    apt-get install -y nginx php php-cli php-fpm php-curl php-mbstring php-xml php-zip php-soap php-mysql git wget unzip curl certbot python3-certbot-nginx ufw
+    apt-get install -y nginx php-cli php-fpm php-curl php-mbstring php-xml php-zip php-soap php-mysql git wget unzip curl certbot python3-certbot-nginx ufw
 
     if dpkg -l | grep -q '^ii  apache2'; then
         warn "Removing Apache to avoid port conflicts..."
