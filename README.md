@@ -1,40 +1,57 @@
 # marzhelp
-A database management robot for Marzban
+A management bot and web panel for [Marzban](https://github.com/Gozargah/Marzban).
 
 ## Telegram
-Join us on [Telegram](https://t.me/marzhelp) for support and updates.
+Join the support channel: [@marzhelp](https://t.me/marzhelp)
+
+## What Is Included
+- Telegram bot for admin management
+- Web panel for admin login and usage visibility
+- Cron-based monitoring and automation
+- MySQL-backed state and settings storage
+
+## Main Features
+- Create and modify admin accounts
+- Admin restrictions and safety controls
+- Enable or disable users, protocols, and inbounds by policy
+- Track usage and remaining quota
+- Store deleted and reset traffic history
+- Show per-admin stats in bot and web panel
+
+## Web Panel
+The web panel is in `panel/` and runs next to the bot.
+
+- URL: `https://your-domain:88/marzhelp/panel/`
+- Login: Marzban admin `username` and `password`
+- Dashboard:
+  - used, total, and remaining traffic
+  - users stats (total, active, expired, online)
+  - limits and status view
+- Footer branding:
+  - `Made with ❤️ by OblivionSpark`
+  - linked to: `https://github.com/iroblivionSpark`
 
 ## Installation
 
-To install **Marzhelp**, use the following command:
-
+### Standard Installer
 ```bash
-bash <(curl -s https://raw.githubusercontent.com/irOblivionSpark/marzhelp/main/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/irOblivionSpark/marzhelp/main/install.sh)
 ```
 
-#### Important Note
-During the installation process, **port 80** will be temporarily opened to obtain an SSL certificate for the domain using Let's Encrypt. Once the SSL certificate is obtained and configured, **port 88** will be used permanently for serving this project. This ensures that all connections are secured using SSL.
+### Easy Installer (Recommended For Docker Marzban)
+This installer is focused on servers where Marzban and MySQL are already running in Docker.
 
-## Description
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/irOblivionSpark/marzhelp/main/install-easy.sh)
+```
 
-**Marzhelp** is a comprehensive tool for managing the administrators of [Marzban](https://github.com/Gozargah/Marzban). It streamlines administrative tasks, enabling you to set up secure configurations and efficiently manage users. This bot is installed with Nginx and occupies port 88. Marzhelp utilizes a combination of PHP, Nginx, and MySQL to establish a reliable environment for bot operations, helping you effortlessly manage your users.
-
-## Features
-
-- ✔️ **Create Admin Accounts**
-- ✔️ **Modify Admin Information** (Username, Password, etc.)
-- ✔️ **Admin Restrictions**
-- ✔️ **Enable and Disable Protocols and Inbounds for Admin Users**
-- ✔️ **Manage Admin Users by Bot Manager and Admin**
-- ✔️ **View Admin Information by Admin and Bot Manager**
-- ✔️ **Deactivate Admin Users**
-- ✔️ **Save deleted volume by admin**
-- ✔️ **Admin restrictions**(creation, editing, rekove, reset usage, etc.)
+## Notes
+- Port `80` is used to obtain Let's Encrypt SSL.
+- After SSL setup, the project is served on port `88`.
+- Webhook endpoint:
+  - `https://your-domain:88/marzhelp/webhook.php`
 
 ## Screenshots
-
-Here is a screenshot of Marzhelp in action:
-
 <p align="center">
   <img src="https://github.com/ppouria/marzhelp/blob/main/screenshots/Screenshot.png" alt="Screenshot" width="300"/>
   <img src="https://github.com/ppouria/marzhelp/blob/main/screenshots/screenshot2.jpg" alt="Screenshot" width="300"/>
@@ -42,14 +59,11 @@ Here is a screenshot of Marzhelp in action:
 </p>
 
 ## Donations
-If you like Marzhelp and would like to support further development, consider making a donation:
-
-- **TRX (TRX):** `TGftLESDAeRncE7yMAHrTUCsixuUwPc6qp`
-- **Tether (USDT bep20):** `0x413eb47C430a3eb0E4262f267C1AE020E0C7F84D`
-- **Bitcoin:** `bc1qnmuuxraew34g806ewkepxrhgln4ult6z5vkj9l`
-- **ETH, BNB, MATIC network (ERC20, BEP20):** `0x413eb47C430a3eb0E4262f267C1AE020E0C7F84D`
-- **TON:** `UQDNpA3SlFMorlrCJJcqQjix93ijJfhAwIxnbTwZTLiHZ0Xa`
+- TRX: `TGftLESDAeRncE7yMAHrTUCsixuUwPc6qp`
+- USDT (BEP20): `0x413eb47C430a3eb0E4262f267C1AE020E0C7F84D`
+- Bitcoin: `bc1qnmuuxraew34g806ewkepxrhgln4ult6z5vkj9l`
+- ETH/BNB/MATIC (ERC20/BEP20): `0x413eb47C430a3eb0E4262f267C1AE020E0C7F84D`
+- TON: `UQDNpA3SlFMorlrCJJcqQjix93ijJfhAwIxnbTwZTLiHZ0Xa`
 
 ## License
-
-Made in [Unknown!] and Published under [AGPL-3.0](./LICENSE).
+Published under [AGPL-3.0](./LICENSE).
