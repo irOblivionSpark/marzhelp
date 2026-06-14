@@ -40,6 +40,10 @@ function logDebug($message) {
     file_put_contents('debug.log', date('[Y-m-d H:i:s] ') . $message . PHP_EOL, FILE_APPEND);
 }
 
+function logBotOperation($message) {
+    file_put_contents('logs.txt', date('Y-m-d H:i:s') . ' - ' . $message . PHP_EOL, FILE_APPEND);
+}
+
 function checkMarzbanConfig() {
     global $marzbanUrl, $marzbanAdminUsername, $marzbanAdminPassword;
     return !empty($marzbanUrl) && !empty($marzbanAdminUsername) && !empty($marzbanAdminPassword) &&
@@ -424,6 +428,104 @@ function manageEventBasedOnLimits($interval = 1) {
         }
     }
     logDebug("manageEventBasedOnLimits completed");
+}
+
+
+function marzbanUsersColumnExists($columnName) {
+    global $marzbanConn;
+
+    $stmt = $marzbanConn->prepare("SHOW COLUMNS FROM users LIKE ?");
+    if (!$stmt) {
+        throw new Exception("Could not inspect Marzban users columns: " . $marzbanConn->error);
+    }
+    $stmt->bind_param("s", $columnName);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $exists = $result && $result->num_rows > 0;
+    $stmt->close();
+
+    return $exists;
+}
+
+function updateAdminUsersStatusDirectly($adminId, $targetStatus) {
+    global $marzbanConn;
+
+    $adminId = intval($adminId);
+    $hasLastStatusChange = marzbanUsersColumnExists('last_status_change');
+    $lastStatusSql = $hasLastStatusChange ? ", last_status_change = UTC_TIMESTAMP()" : "";
+    $affectedRows = 0;
+
+    if ($targetStatus === 'disabled') {
+        $stmt = $marzbanConn->prepare("UPDATE users SET status = 'disabled'{$lastStatusSql} WHERE admin_id = ? AND status IN ('active', 'on_hold')");
+        if (!$stmt) {
+            throw new Exception("Could not prepare direct disable query: " . $marzbanConn->error);
+        }
+        $stmt->bind_param("i", $adminId);
+        $stmt->execute();
+        $affectedRows += max(0, $stmt->affected_rows);
+        $stmt->close();
+
+        return $affectedRows;
+    }
+
+    if ($targetStatus === 'active') {
+        $hasOnHoldColumns = marzbanUsersColumnExists('on_hold_expire_duration') && marzbanUsersColumnExists('online_at') && marzbanUsersColumnExists('expire');
+
+        if ($hasOnHoldColumns) {
+            $stmt = $marzbanConn->prepare("UPDATE users SET status = 'on_hold'{$lastStatusSql} WHERE admin_id = ? AND status = 'disabled' AND expire IS NULL AND on_hold_expire_duration IS NOT NULL AND online_at IS NULL");
+            if (!$stmt) {
+                throw new Exception("Could not prepare direct on-hold restore query: " . $marzbanConn->error);
+            }
+            $stmt->bind_param("i", $adminId);
+            $stmt->execute();
+            $affectedRows += max(0, $stmt->affected_rows);
+            $stmt->close();
+        }
+
+        $stmt = $marzbanConn->prepare("UPDATE users SET status = 'active'{$lastStatusSql} WHERE admin_id = ? AND status = 'disabled'");
+        if (!$stmt) {
+            throw new Exception("Could not prepare direct activate query: " . $marzbanConn->error);
+        }
+        $stmt->bind_param("i", $adminId);
+        $stmt->execute();
+        $affectedRows += max(0, $stmt->affected_rows);
+        $stmt->close();
+
+        return $affectedRows;
+    }
+
+    throw new InvalidArgumentException('Unsupported target user status.');
+}
+
+function countAdminUsersByStatuses($adminId, array $statuses) {
+    global $marzbanConn;
+
+    if (empty($statuses)) {
+        return 0;
+    }
+
+    $escapedStatuses = array_map(function($status) use ($marzbanConn) {
+        return "'" . $marzbanConn->real_escape_string($status) . "'";
+    }, $statuses);
+    $statusList = implode(',', $escapedStatuses);
+
+    $stmt = $marzbanConn->prepare("SELECT COUNT(*) AS total FROM users WHERE admin_id = ? AND status IN ($statusList)");
+    if (!$stmt) {
+        throw new Exception("Could not prepare Marzban users count query: " . $marzbanConn->error);
+    }
+    $adminId = intval($adminId);
+    $stmt->bind_param("i", $adminId);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $row = $result->fetch_assoc();
+    $stmt->close();
+
+    return intval($row['total'] ?? 0);
+}
+
+function restartMarzbanAfterUserStatusChange() {
+    $command = 'sudo marzban restart > /dev/null 2>&1 &';
+    exec($command);
 }
 
 function getAdminInfo($adminId) {
@@ -2309,6 +2411,11 @@ if ($data === 'manage_admins' || strpos($data, 'admin_page:') === 0) {
     }
     if (strpos($data, 'disable_users:') === 0) {
         $adminId = intval(substr($data, strlen('disable_users:')));
+        sendRequest('answerCallbackQuery', [
+            'callback_query_id' => $callbackId,
+            'text' => $lang['delete_users_confirmation'],
+            'show_alert' => false
+        ]);
         sendRequest('editMessageText', [
             'chat_id' => $chatId,
             'message_id' => $messageId,
@@ -2321,6 +2428,12 @@ if ($data === 'manage_admins' || strpos($data, 'admin_page:') === 0) {
     if (strpos($data, 'confirm_disable_yes:') === 0) {
         $adminId = intval(substr($data, strlen('confirm_disable_yes:')));
         global $marzbanConn, $botConn, $marzbanapi;
+
+        sendRequest('answerCallbackQuery', [
+            'callback_query_id' => $callbackId,
+            'text' => $lang['disable_users_processing'] ?? $lang['delete_users_confirmation'],
+            'show_alert' => false
+        ]);
     
         $adminInfo = getAdminInfo($adminId, $userId);
         if (!$adminInfo || !isset($adminInfo['username'])) {
@@ -2334,20 +2447,32 @@ if ($data === 'manage_admins' || strpos($data, 'admin_page:') === 0) {
         $adminUsername = $adminInfo['username'];
     
         try {
-            $marzbanapi->disableAllActiveUsers($adminUsername);
+            $beforeActiveUsers = countAdminUsersByStatuses($adminId, ['active', 'on_hold']);
+            logBotOperation("Disable users requested for admin_id={$adminId}, username={$adminUsername}, active_or_on_hold_before={$beforeActiveUsers}");
+
+            if ($beforeActiveUsers > 0) {
+                $affectedRows = updateAdminUsersStatusDirectly($adminId, 'disabled');
+                logBotOperation("Direct disable completed for admin_id={$adminId}: before={$beforeActiveUsers}, affected_rows={$affectedRows}");
+                restartMarzbanAfterUserStatusChange();
+            } else {
+                logBotOperation("Direct disable skipped for admin_id={$adminId}: no active or on-hold users found");
+            }
+            $afterActiveUsers = countAdminUsersByStatuses($adminId, ['active', 'on_hold']);
+            logBotOperation("Disable users finished for admin_id={$adminId}: active_or_on_hold_after={$afterActiveUsers}");
     
             $stmt = $botConn->prepare("SELECT status FROM admin_settings WHERE admin_id = ?");
             $stmt->bind_param("i", $adminId);
             $stmt->execute();
             $result = $stmt->get_result();
-            $currentStatus = json_decode($result->fetch_assoc()['status'], true) ?? ['time' => 'active', 'data' => 'active', 'users' => 'active'];
+            $row = $result->fetch_assoc();
+            $currentStatus = json_decode($row['status'] ?? '', true) ?: ['time' => 'active', 'data' => 'active', 'users' => 'active'];
             $stmt->close();
     
             $currentStatus['users'] = 'disabled';
             $newStatus = json_encode($currentStatus);
     
-            $stmt = $botConn->prepare("UPDATE admin_settings SET status = ? WHERE admin_id = ?");
-            $stmt->bind_param("si", $newStatus, $adminId);
+            $stmt = $botConn->prepare("INSERT INTO admin_settings (admin_id, status) VALUES (?, ?) ON DUPLICATE KEY UPDATE status = VALUES(status)");
+            $stmt->bind_param("is", $adminId, $newStatus);
             $stmt->execute();
             $stmt->close();
     
@@ -2392,20 +2517,32 @@ if ($data === 'manage_admins' || strpos($data, 'admin_page:') === 0) {
         $adminUsername = $adminInfo['username'];
     
         try {
-            $marzbanapi->activateAllDisabledUsers($adminUsername);
+            $beforeDisabledUsers = countAdminUsersByStatuses($adminId, ['disabled']);
+            logBotOperation("Enable users requested for admin_id={$adminId}, username={$adminUsername}, disabled_before={$beforeDisabledUsers}");
+
+            if ($beforeDisabledUsers > 0) {
+                $affectedRows = updateAdminUsersStatusDirectly($adminId, 'active');
+                logBotOperation("Direct activate completed for admin_id={$adminId}: before={$beforeDisabledUsers}, affected_rows={$affectedRows}");
+                restartMarzbanAfterUserStatusChange();
+            } else {
+                logBotOperation("Direct activate skipped for admin_id={$adminId}: no disabled users found");
+            }
+            $afterDisabledUsers = countAdminUsersByStatuses($adminId, ['disabled']);
+            logBotOperation("Enable users finished for admin_id={$adminId}: disabled_after={$afterDisabledUsers}");
     
             $stmt = $botConn->prepare("SELECT status FROM admin_settings WHERE admin_id = ?");
             $stmt->bind_param("i", $adminId);
             $stmt->execute();
             $result = $stmt->get_result();
-            $currentStatus = json_decode($result->fetch_assoc()['status'], true) ?? ['time' => 'active', 'data' => 'active', 'users' => 'disabled'];
+            $row = $result->fetch_assoc();
+            $currentStatus = json_decode($row['status'] ?? '', true) ?: ['time' => 'active', 'data' => 'active', 'users' => 'disabled'];
             $stmt->close();
     
             $currentStatus['users'] = 'active';
             $newStatus = json_encode($currentStatus);
     
-            $stmt = $botConn->prepare("UPDATE admin_settings SET status = ? WHERE admin_id = ?");
-            $stmt->bind_param("si", $newStatus, $adminId);
+            $stmt = $botConn->prepare("INSERT INTO admin_settings (admin_id, status) VALUES (?, ?) ON DUPLICATE KEY UPDATE status = VALUES(status)");
+            $stmt->bind_param("is", $adminId, $newStatus);
             $stmt->execute();
             $stmt->close();
     
@@ -3639,22 +3776,33 @@ if (strpos($data, 'disable_users_') === 0) {
         $adminUsername = $adminInfo['username'];
 
         try {
-            $marzbanapi->disableAllActiveUsers($adminUsername);
+            $beforeActiveUsers = countAdminUsersByStatuses($adminId, ['active', 'on_hold']);
+            logBotOperation("Legacy disable users requested for admin_id={$adminId}, username={$adminUsername}, active_or_on_hold_before={$beforeActiveUsers}");
+
+            if ($beforeActiveUsers > 0) {
+                $affectedRows = updateAdminUsersStatusDirectly($adminId, 'disabled');
+                logBotOperation("Legacy direct disable completed for admin_id={$adminId}: before={$beforeActiveUsers}, affected_rows={$affectedRows}");
+                restartMarzbanAfterUserStatusChange();
+            } else {
+                logBotOperation("Legacy direct disable skipped for admin_id={$adminId}: no active or on-hold users found");
+            }
+            $afterActiveUsers = countAdminUsersByStatuses($adminId, ['active', 'on_hold']);
+            logBotOperation("Legacy disable users finished for admin_id={$adminId}: active_or_on_hold_after={$afterActiveUsers}");
 
             $stmt = $botConn->prepare("SELECT status, hashed_password_before FROM admin_settings WHERE admin_id = ?");
             $stmt->bind_param("i", $adminId);
             $stmt->execute();
             $result = $stmt->get_result();
             $row = $result->fetch_assoc();
-            $currentStatus = json_decode($row['status'], true) ?? ['time' => 'active', 'data' => 'active', 'users' => 'active'];
-            $currentStatus['hashed_password_before'] = $row['hashed_password_before'];
+            $currentStatus = json_decode($row['status'] ?? '', true) ?: ['time' => 'active', 'data' => 'active', 'users' => 'active'];
+            $currentStatus['hashed_password_before'] = $row['hashed_password_before'] ?? null;
             $stmt->close();
 
             $currentStatus['users'] = 'disabled';
             $newStatus = json_encode($currentStatus);
 
-            $stmt = $botConn->prepare("UPDATE admin_settings SET status = ? WHERE admin_id = ?");
-            $stmt->bind_param("si", $newStatus, $adminId);
+            $stmt = $botConn->prepare("INSERT INTO admin_settings (admin_id, status) VALUES (?, ?) ON DUPLICATE KEY UPDATE status = VALUES(status)");
+            $stmt->bind_param("is", $adminId, $newStatus);
             $stmt->execute();
             $stmt->close();
 
@@ -3699,22 +3847,33 @@ if (strpos($data, 'enable_users_') === 0) {
         $adminUsername = $adminInfo['username'];
 
         try {
-            $marzbanapi->activateAllDisabledUsers($adminUsername);
+            $beforeDisabledUsers = countAdminUsersByStatuses($adminId, ['disabled']);
+            logBotOperation("Legacy enable users requested for admin_id={$adminId}, username={$adminUsername}, disabled_before={$beforeDisabledUsers}");
+
+            if ($beforeDisabledUsers > 0) {
+                $affectedRows = updateAdminUsersStatusDirectly($adminId, 'active');
+                logBotOperation("Legacy direct activate completed for admin_id={$adminId}: before={$beforeDisabledUsers}, affected_rows={$affectedRows}");
+                restartMarzbanAfterUserStatusChange();
+            } else {
+                logBotOperation("Legacy direct activate skipped for admin_id={$adminId}: no disabled users found");
+            }
+            $afterDisabledUsers = countAdminUsersByStatuses($adminId, ['disabled']);
+            logBotOperation("Legacy enable users finished for admin_id={$adminId}: disabled_after={$afterDisabledUsers}");
 
             $stmt = $botConn->prepare("SELECT status, hashed_password_before FROM admin_settings WHERE admin_id = ?");
             $stmt->bind_param("i", $adminId);
             $stmt->execute();
             $result = $stmt->get_result();
             $row = $result->fetch_assoc();
-            $currentStatus = json_decode($row['status'], true) ?? ['time' => 'active', 'data' => 'active', 'users' => 'disabled'];
-            $currentStatus['hashed_password_before'] = $row['hashed_password_before'];
+            $currentStatus = json_decode($row['status'] ?? '', true) ?: ['time' => 'active', 'data' => 'active', 'users' => 'disabled'];
+            $currentStatus['hashed_password_before'] = $row['hashed_password_before'] ?? null;
             $stmt->close();
 
             $currentStatus['users'] = 'active';
             $newStatus = json_encode($currentStatus);
 
-            $stmt = $botConn->prepare("UPDATE admin_settings SET status = ? WHERE admin_id = ?");
-            $stmt->bind_param("si", $newStatus, $adminId);
+            $stmt = $botConn->prepare("INSERT INTO admin_settings (admin_id, status) VALUES (?, ?) ON DUPLICATE KEY UPDATE status = VALUES(status)");
+            $stmt->bind_param("is", $adminId, $newStatus);
             $stmt->execute();
             $stmt->close();
 

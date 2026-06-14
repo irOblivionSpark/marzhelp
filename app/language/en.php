@@ -12,6 +12,7 @@ return [
     'add_user_success' => '✅ New user added.',
     'add_user_failure' => '❌ Error adding user.',
     'delete_users_confirmation' => '🚫 Are you sure you want to disable users for this admin?',
+    'disable_users_processing' => 'Disabling users... please wait.',
     'users_disabled' => '🚫 Users have been disabled',
     'users_enabled' => '✅ Users have been enabled',
     'security_settings' => '🔒 Security Settings:',
