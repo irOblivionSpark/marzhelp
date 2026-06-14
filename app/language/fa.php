@@ -13,6 +13,7 @@ return [
         'add_user_success' => '✅ کاربر جدید اضافه شد.',
         'add_user_failure' => '❌ خطا در افزودن کاربر.',
         'delete_users_confirmation' => '🚫 آیا از غیرفعال‌سازی کاربران این ادمین مطمئن هستید؟',
+        'disable_users_processing' => 'در حال غیرفعال‌سازی کاربران... لطفاً صبر کنید.',
         'users_disabled' => '🚫 کاربران غیرفعال شدند',
         'users_enabled' => '✅ کاربران فعال شدند',
         'security_settings' => '🔒 تنظیمات امنیتی:',

@@ -505,6 +505,64 @@ uninstall_marzhelp() {
     ok "Marzhelp uninstall completed."
 }
 
+update_marzhelp() {
+    ensure_root
+    require_command git
+
+    if [[ ! -d "${APP_DIR}" ]]; then
+        err "Marzhelp is not installed at ${APP_DIR}. Run Install first."
+        return 1
+    fi
+
+    local backup_dir=""
+    backup_dir="/tmp/marzhelp-update-$(date +%Y%m%d%H%M%S)"
+    mkdir -p "${backup_dir}"
+
+    info "Backing up local configuration to ${backup_dir}..."
+    for file in config.php token.json logs.txt debug.log ad_cache.txt ad_cache_time.txt; do
+        if [[ -f "${APP_DIR}/${file}" ]]; then
+            cp -a "${APP_DIR}/${file}" "${backup_dir}/${file}"
+        fi
+    done
+
+    info "Updating Marzhelp files from ${REPO_URL}..."
+    if [[ -d "${APP_DIR}/.git" ]]; then
+        git -C "${APP_DIR}" fetch --all --prune
+        git -C "${APP_DIR}" reset --hard origin/main
+    else
+        warn "Existing installation is not a Git checkout. Replacing files while preserving config backup."
+        rm -rf "${APP_DIR}"
+        git clone "${REPO_URL}" "${APP_DIR}"
+    fi
+
+    info "Restoring local configuration..."
+    for file in config.php token.json logs.txt debug.log ad_cache.txt ad_cache_time.txt; do
+        if [[ -f "${backup_dir}/${file}" ]]; then
+            cp -a "${backup_dir}/${file}" "${APP_DIR}/${file}"
+        fi
+    done
+
+    chown -R www-data:www-data "${APP_DIR}"
+    chmod -R 755 "${APP_DIR}"
+    if [[ -f "${APP_DIR}/config.php" ]]; then
+        chmod 640 "${APP_DIR}/config.php"
+    fi
+
+    if [[ -f "${APP_DIR}/table.php" ]]; then
+        run_table_setup
+    fi
+
+    if command -v nginx >/dev/null 2>&1; then
+        nginx -t
+        systemctl restart nginx || true
+    fi
+    if systemctl list-unit-files | grep -q '^php.*-fpm\.service'; then
+        systemctl restart 'php*-fpm' || true
+    fi
+
+    ok "Marzhelp update completed. Backup: ${backup_dir}"
+}
+
 run_install() {
     ensure_root
     require_command docker
@@ -532,7 +590,8 @@ show_menu() {
     echo
     echo "====== Marzhelp Easy Installer ======"
     echo "1) Install"
-    echo "2) Uninstall"
+    echo "2) Update"
+    echo "3) Uninstall"
     echo "0) Exit"
 }
 
@@ -546,6 +605,9 @@ main() {
                 run_install
                 ;;
             2)
+                update_marzhelp
+                ;;
+            3)
                 uninstall_marzhelp
                 ;;
             0)
@@ -553,7 +615,7 @@ main() {
                 exit 0
                 ;;
             *)
-                err "Invalid option. Choose 1, 2, or 0."
+                err "Invalid option. Choose 1, 2, 3, or 0."
                 ;;
         esac
     done
