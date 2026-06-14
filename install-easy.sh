@@ -527,11 +527,7 @@ update_marzhelp() {
 
     info "Updating Marzhelp files from ${REPO_URL}..."
     if [[ -d "${APP_DIR}/.git" ]]; then
-        # The installer creates the project for www-data, but updates are usually run as root.
-        # Mark the install path as safe so Git does not stop with a dubious ownership error.
-        if ! git config --global --get-all safe.directory | grep -Fxq "${APP_DIR}"; then
-            git config --global --add safe.directory "${APP_DIR}" || true
-        fi
+
         git -C "${APP_DIR}" fetch --all --prune
         git -C "${APP_DIR}" reset --hard origin/main
     else
