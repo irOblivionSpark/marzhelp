@@ -527,6 +527,7 @@ update_marzhelp() {
 
     info "Updating Marzhelp files from ${REPO_URL}..."
     if [[ -d "${APP_DIR}/.git" ]]; then
+
         git -C "${APP_DIR}" fetch --all --prune
         git -C "${APP_DIR}" reset --hard origin/main
     else
