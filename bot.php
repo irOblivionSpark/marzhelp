@@ -2309,6 +2309,11 @@ if ($data === 'manage_admins' || strpos($data, 'admin_page:') === 0) {
     }
     if (strpos($data, 'disable_users:') === 0) {
         $adminId = intval(substr($data, strlen('disable_users:')));
+        sendRequest('answerCallbackQuery', [
+            'callback_query_id' => $callbackId,
+            'text' => $lang['delete_users_confirmation'],
+            'show_alert' => false
+        ]);
         sendRequest('editMessageText', [
             'chat_id' => $chatId,
             'message_id' => $messageId,
@@ -2321,6 +2326,12 @@ if ($data === 'manage_admins' || strpos($data, 'admin_page:') === 0) {
     if (strpos($data, 'confirm_disable_yes:') === 0) {
         $adminId = intval(substr($data, strlen('confirm_disable_yes:')));
         global $marzbanConn, $botConn, $marzbanapi;
+
+        sendRequest('answerCallbackQuery', [
+            'callback_query_id' => $callbackId,
+            'text' => $lang['disable_users_processing'] ?? $lang['delete_users_confirmation'],
+            'show_alert' => false
+        ]);
     
         $adminInfo = getAdminInfo($adminId, $userId);
         if (!$adminInfo || !isset($adminInfo['username'])) {
@@ -2340,14 +2351,15 @@ if ($data === 'manage_admins' || strpos($data, 'admin_page:') === 0) {
             $stmt->bind_param("i", $adminId);
             $stmt->execute();
             $result = $stmt->get_result();
-            $currentStatus = json_decode($result->fetch_assoc()['status'], true) ?? ['time' => 'active', 'data' => 'active', 'users' => 'active'];
+            $row = $result->fetch_assoc();
+            $currentStatus = json_decode($row['status'] ?? '', true) ?: ['time' => 'active', 'data' => 'active', 'users' => 'active'];
             $stmt->close();
     
             $currentStatus['users'] = 'disabled';
             $newStatus = json_encode($currentStatus);
     
-            $stmt = $botConn->prepare("UPDATE admin_settings SET status = ? WHERE admin_id = ?");
-            $stmt->bind_param("si", $newStatus, $adminId);
+            $stmt = $botConn->prepare("INSERT INTO admin_settings (admin_id, status) VALUES (?, ?) ON DUPLICATE KEY UPDATE status = VALUES(status)");
+            $stmt->bind_param("is", $adminId, $newStatus);
             $stmt->execute();
             $stmt->close();
     
@@ -2398,14 +2410,15 @@ if ($data === 'manage_admins' || strpos($data, 'admin_page:') === 0) {
             $stmt->bind_param("i", $adminId);
             $stmt->execute();
             $result = $stmt->get_result();
-            $currentStatus = json_decode($result->fetch_assoc()['status'], true) ?? ['time' => 'active', 'data' => 'active', 'users' => 'disabled'];
+            $row = $result->fetch_assoc();
+            $currentStatus = json_decode($row['status'] ?? '', true) ?: ['time' => 'active', 'data' => 'active', 'users' => 'disabled'];
             $stmt->close();
     
             $currentStatus['users'] = 'active';
             $newStatus = json_encode($currentStatus);
     
-            $stmt = $botConn->prepare("UPDATE admin_settings SET status = ? WHERE admin_id = ?");
-            $stmt->bind_param("si", $newStatus, $adminId);
+            $stmt = $botConn->prepare("INSERT INTO admin_settings (admin_id, status) VALUES (?, ?) ON DUPLICATE KEY UPDATE status = VALUES(status)");
+            $stmt->bind_param("is", $adminId, $newStatus);
             $stmt->execute();
             $stmt->close();
     
